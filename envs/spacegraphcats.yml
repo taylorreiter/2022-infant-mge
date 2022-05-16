@@ -1,0 +1,20 @@
+channels:
+   - conda-forge
+   - bioconda
+   - defaults
+dependencies:
+    - bcalm=2.2.3
+    - snakemake-minimal=7.3.8
+    - screed>=1.0.5,<2
+    - khmer=3.0.0a3
+    - numpy
+    - pytest=5.3.2
+    - sortedcontainers=2.1.0
+    - click>=8.1.2,<9
+    - pyflakes
+    - bbhash>=0.5.4
+    - sourmash>=4.2.2,<5
+    - mamba>=0.22.1
+    - pip
+    - pip:
+        - git+https://github.com/spacegraphcats/spacegraphcats@latest
