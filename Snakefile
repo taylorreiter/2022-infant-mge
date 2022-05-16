@@ -1,7 +1,10 @@
 import pandas as pd
 
-m = pd.read_csv("inputs/filereport_read_run_SRR3726337.tsv", head = 0, sep = "\t")
+m = pd.read_csv("inputs/filereport_read_run_SRR3726337.tsv", header = 0, sep = "\t")
 SAMPLES = m['run_accession'].unique().tolist()
+
+rule all:
+    input:  expand("outputs/sgc_abund/{sample}.reads.gz.dom_abund.csv", sample = SAMPLES)
 
 ###################################################################
 ## Download reads and databases for workflow
@@ -70,7 +73,7 @@ rule decompress_viral_db_for_annotation:
     '''
 
 rule decompress_card_db_for_annotation:
-    input: "inputs/inputs/broardstreet-v3.2.2.tar.bz2"
+    input: "inputs/broardstreet-v3.2.2.tar.bz2"
     output: "inputs/card_db/nucleotide_fasta_protein_homolog_model.fasta"
     params: outdir = "inputs/card_db"
     threads: 1
@@ -96,7 +99,7 @@ rule combine_query_sequences_into_single_fasta:
 
 rule sketch_query_sequences:
     input: "inputs/sgc_multifasta_query_hgt_db.fasta"
-    output:
+    output:"inputs/sgc_multifasta_query_hgt_db.sig"
     conda: "envs/sourmash.yml"
     threads: 1
     resources: 
@@ -125,7 +128,8 @@ rule fastp:
     conda: "envs/fastp.yml"
     threads: 1
     resources:
-        mem_mb=16000
+        mem_mb=16000,
+        time_min = 440
     shell:'''
     fastp --in1 {input.R1} \
       --in2 {input.R2} \
@@ -143,19 +147,20 @@ rule remove_host:
 # original database kept here:
 # https://drive.google.com/file/d/0B3llHR93L14wd0pSSnFULUlhcUk/edit?usp=sharing
 # I uploaded it to OSF in case the original disappears and to allow auto download
+    input: 
+        r1="outputs/fastp/{sample}_R1.trim.fq.gz",
+        r2="outputs/fastp/{sample}_R2.trim.fq.gz",
+        human='inputs/hg19_main_mask_ribo_animal_allplant_allfungus.fa.gz'
     output:
         r1 = 'outputs/bbduk/{sample}_R1.nohost.fq.gz',
         r2 = 'outputs/bbduk/{sample}_R2.nohost.fq.gz',
         human_r1='outputs/bbduk/{sample}_R1.human.fq.gz',
         human_r2='outputs/bbduk/{sample}_R2.human.fq.gz'
-    input: 
-        r1="outputs/fastp/{sample}_R1.trim.fq.gz",
-        r2="outputs/fastp/{sample}_R2.trim.fq.gz",
-        human='inputs/host/hg19_main_mask_ribo_animal_allplant_allfungus.fa.gz'
     conda: 'envs/bbmap.yml'
     threads: 1
     resources:
-        mem_mb=64000
+        mem_mb=64000,
+        time_min = 440
     shell:'''
     bbduk.sh -Xmx64g t=3 in={input.r1} in2={input.r2} out={output.r1} out2={output.r2} outm={output.human_r1} outm2={output.human_r2} k=31 ref={input.human}
     '''
@@ -168,7 +173,8 @@ rule kmer_trim_reads:
     conda: 'envs/khmer.yml'
     threads: 1
     resources:
-        mem_mb=61000
+        mem_mb=61000,
+        time_min = 880
     shell:'''
     interleave-reads.py {input} | trim-low-abund.py --gzip -C 3 -Z 18 -M 60e9 -V - -o {output}
     '''
@@ -180,12 +186,13 @@ rule kmer_trim_reads:
 rule make_sgc_pangenome_multifasta_conf_files:
     input:
         reads =  "outputs/abundtrim/{sample}.abundtrim.fq.gz",
-        ref_genes = "inputs/sgc_multifasta_query_hgt_db.fasta" 
+        ref_genes = "inputs/sgc_multifasta_query_hgt_db.fasta",
         ref_sig = "inputs/sgc_multifasta_query_hgt_db.sig"
     output:
         conf = "outputs/sgc_conf/{sample}_r10_multifasta_conf.yml"
     resources:
-        mem_mb = 500
+        mem_mb = 500,
+        time_min = 30
     threads: 1
     run:
         with open(output.conf, 'wt') as fp:
@@ -206,13 +213,16 @@ rule spacegraphcats_build:
     Build the catlas, the internal sgc graph structure that enables efficient queries
     """
     input:
-        reads="outputs/abundtrim/{sample}.abundtrim.fq.gz"
+        reads="outputs/abundtrim/{sample}.abundtrim.fq.gz",
         conf="outputs/sgc_conf/{sample}_r10_multifasta_conf.yml"
     output: 
-        "outputs/{sample}_k31_r10/catlas.csv"
+        "outputs/sgc/{sample}_k31_r10/catlas.csv",
+        "outputs/sgc/{sample}_k31/cdbg.gxt",
+        "outputs/sgc/{sample}_k31/bcalm.unitigs.db"
     resources: 
         mem_mb = 32000,
-    benchmark: "benchmarks/spacegraphcats_build_k31_r10.tsv"
+        time_min = 1440
+    benchmark: "benchmarks/spacegraphcats_build_k31_r10_{sample}.tsv"
     params: outdir = "outputs/sgc"
     conda: "envs/spacegraphcats.yml"
     shell:"""
@@ -222,8 +232,8 @@ rule spacegraphcats_build:
 rule spacegraphcats_multifasta_query:
     input:
         reads =  "outputs/abundtrim/{sample}.abundtrim.fq.gz",
-        ref_genes = "inputs/sgc_multifasta_query_hgt_db.fasta" 
-        ref_sig = "inputs/sgc_multifasta_query_hgt_db.sig"
+        ref_genes = "inputs/sgc_multifasta_query_hgt_db.fasta", 
+        ref_sig = "inputs/sgc_multifasta_query_hgt_db.sig",
         conf = "outputs/sgc_conf/{sample}_r10_multifasta_conf.yml",
         catlas = "outputs/sgc/{sample}_k31_r10/catlas.csv"
     output: 
@@ -232,9 +242,10 @@ rule spacegraphcats_multifasta_query:
     params: 
         outdir = "outputs/sgc",
     conda: "envs/spacegraphcats.yml"
-    benchmark: "benchmarks/spacegraphcats_multifasta_query_k31_r10.tsv"
+    benchmark: "benchmarks/spacegraphcats_multifasta_query_k31_r10_{sample}.tsv"
     resources:
-        mem_mb = 32000
+        mem_mb = 32000,
+        time_min = 920
     threads: 1
     shell:'''
     python -m spacegraphcats {input.conf} multifasta_query --nolock --outdir {params.outdir} --rerun-incomplete
@@ -244,12 +255,13 @@ rule spacegraphcats_estimate_abundances_of_dominating_sets:
     input:
         cdbg = "outputs/sgc/{sample}_k31/cdbg.gxt",
         catlas = "outputs/sgc/{sample}_k31_r10/catlas.csv",
-        reads = expand("outputs/abundtrim/{sample}.abundtrim.fq.gz", sample = SAMPLES)
-    output: expand("outputs/sgc_abund/{sample}.reads.gz.dom_abund.csv", sample = SAMPLES)
+        reads = "outputs/abundtrim/{sample}.abundtrim.fq.gz"
+    output: "outputs/sgc_abund/{sample}.reads.gz.dom_abund.csv"
     conda: "envs/spacegraphcats_dom.yml"
+    benchmark: "benchmarks/spacegraphcats_count_dominator_abund_k31_r10_{sample}.tsv"
     resources: 
         mem_mb = 10000,
-        tmpdir = TMPDIR
+        time_min = 920
     threads: 1
     params:
         cdbg_dir = lambda wildcards: "outputs/sgc/" + wildcards.sample + "_k31" ,
