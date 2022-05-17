@@ -1,10 +1,13 @@
 import pandas as pd
+import os
 
 m = pd.read_csv("inputs/filereport_read_run_SRR3726337.tsv", header = 0, sep = "\t")
 SAMPLES = m['run_accession'].unique().tolist()
 
 rule all:
-    input:  expand("outputs/sgc_abund/{sample}.reads.gz.dom_abund.csv", sample = SAMPLES)
+    input:  
+        expand("outputs/sgc_abund/{sample}.abundtrim.fq.gz.dom_abund.csv", sample = SAMPLES), 
+        expand("outputs/sgc/{sample}_k31_r10_multifasta/multifasta.cdbg_annot.csv", sample = SAMPLES)
 
 ###################################################################
 ## Download reads and databases for workflow
@@ -24,9 +27,9 @@ rule download_metagenome_reads:
         fastqs = fastqs.split(";")
         fastq_1 = fastqs[0]
         fastq_2 = fastqs[1]
-        if not os.path.exists(params.tmp_base + "_1.fastq.gz"):
+        if not os.path.exists(output.r1):
             shell("wget -O {output.r1} ftp://{fastq_1}")
-        if not os.path.exists(params.tmp_base + "_2.fastq.gz"):
+        if not os.path.exists(output.r2):
             shell("wget -O {output.r2} ftp://{fastq_2}")
 
 
@@ -248,7 +251,7 @@ rule spacegraphcats_multifasta_query:
         time_min = 920
     threads: 1
     shell:'''
-    python -m spacegraphcats {input.conf} multifasta_query --nolock --outdir {params.outdir} --rerun-incomplete
+    python -m spacegraphcats run {input.conf} multifasta_query --nolock --outdir {params.outdir} --rerun-incomplete
     '''
 
 rule spacegraphcats_estimate_abundances_of_dominating_sets:
@@ -256,8 +259,8 @@ rule spacegraphcats_estimate_abundances_of_dominating_sets:
         cdbg = "outputs/sgc/{sample}_k31/cdbg.gxt",
         catlas = "outputs/sgc/{sample}_k31_r10/catlas.csv",
         reads = "outputs/abundtrim/{sample}.abundtrim.fq.gz"
-    output: "outputs/sgc_abund/{sample}.reads.gz.dom_abund.csv"
-    conda: "envs/spacegraphcats_dom.yml"
+    output: "outputs/sgc_abund/{sample}.abundtrim.fq.gz.dom_abund.csv"
+    conda: "envs/spacegraphcats.yml"
     benchmark: "benchmarks/spacegraphcats_count_dominator_abund_k31_r10_{sample}.tsv"
     resources: 
         mem_mb = 10000,
