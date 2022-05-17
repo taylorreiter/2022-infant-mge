@@ -1,0 +1,11 @@
+slurm/
+slurm*out
+*fasta
+.snakemake/
+benchmarks/
+inputs/CHVD_virus_sequences_v1.1.tar.gz
+inputs/broardstreet-v3.2.2.tar.bz2
+inputs/card_db/
+inputs/hg19_main_mask_ribo_animal_allplant_allfungus.fa.gz
+inputs/raw_reads/
+inputs/sgc_multifasta_query_hgt_db.sig
