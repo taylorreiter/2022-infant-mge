@@ -4,12 +4,20 @@ import os
 m = pd.read_csv("inputs/filereport_read_run_SRR3726337.tsv", header = 0, sep = "\t")
 SAMPLES = m['run_accession'].unique().tolist()
 
+# TODO:
+# temporarily define genome accession wildcard for BLAST queries
+# This is straightforward to automate gather matches -> genome download, but this is a faster bandaid
+# Requires new class to be defined that will scrape in df of gather results and solve appropriate accessions per sample
+GENOMES = ['GCA_000701705.1_ASM70170v1', 'GCA_001913975.1_ASM191397v1'  'GCA_009737075.1_ASM973707v1',
+           'GCA_001913895.1_ASM191389v1', 'GCA_001931885.1_ASM193188v1', 'GCA_019173815.2_ASM1917381v2'] 
+
 rule all:
     input:  
         expand("outputs/sourmash_gather/{sample}_k31_scaled2000_gtdb-rs207.csv", sample = SAMPLES),
         expand("outputs/sgc_abund/{sample}.abundtrim.fq.gz.dom_abund.csv", sample = SAMPLES), 
         expand("outputs/sgc/{sample}_k31_r10_multifasta/multifasta.cdbg_annot.csv", sample = SAMPLES),
-        expand("outputs/bandage/{sample}_done.txt", sample = SAMPLES)
+        expand("outputs/bandage/{sample}_done_mge.txt", sample = SAMPLES),
+        expand("outputs/bandage/{sample}_{genome}_done_species.txt", sample = SAMPLES, genome = GENOMES)
 
 ###################################################################
 ## Download reads and databases for workflow
@@ -433,7 +441,7 @@ rule bcalm_mge_nbhd:
     threads: 1
     conda: "envs/spacegraphcats.yml"
     shell:'''
-    bcalm -in {input} -out-dir outputs/bcalm/{wildcards.sample}_10 -kmer-size 31 -abundance-min 1 -out {params.prefix}
+    bcalm -in {input} -out-dir outputs/bcalm/{wildcards.sample}_r10 -kmer-size 31 -abundance-min 1 -out {params.prefix}
     '''
 
 rule convert_to_gfa:
@@ -448,7 +456,7 @@ rule convert_to_gfa:
     python ./scripts/convertToGFA.py {input} {output} 31
     '''
 
-rule bandage_plot_gfa:
+rule bandage_plot_gfa_mge:
     input: 
         gfa="outputs/bcalm/{sample}_r10/{mge}.fa.cdbg_ids.reads.gz.unitigs.gfa",
         blastquery="outputs/candidate_mge_sequences/{mge}.fa"
@@ -459,9 +467,11 @@ rule bandage_plot_gfa:
     threads: 1
     conda: "envs/bandage.yml"
     shell:'''
+    XDG_RUNTIME_DIR=~/tmp # REQUIRES THAT THIS FOLDER EXISTS
     Bandage image {input.gfa} {output} --query {input.blastquery}    
     '''
 
+    
 def checkpoint_spacegraphcats_extract_mge_sequences_1(wildcards):
     # Expand checkpoint to get fasta names, which will be used as queries for spacegraphcats extract
     # checkpoint_output encodes the output dir from the checkpoint rule.
@@ -470,7 +480,33 @@ def checkpoint_spacegraphcats_extract_mge_sequences_1(wildcards):
                         mge = glob_wildcards(os.path.join(checkpoint_output, "{mge}.fa.cdbg_ids.reads.gz")).mge)
     return file_names
 
-rule dummy_solve:
+rule dummy_solve_mge_blast:
     input: checkpoint_spacegraphcats_extract_mge_sequences_1
-    output: touch("outputs/bandage/{sample}_done.txt")
+    output: touch("outputs/bandage/{sample}_done_mge.txt")
     
+rule bandage_plot_gfa_species:
+    input: 
+        gfa="outputs/bcalm/{sample}_r10/{mge}.fa.cdbg_ids.reads.gz.unitigs.gfa",
+        blastquery="outputs/genbank_genomes/{genome}_genomic.fna"
+    output: "outputs/bandage/{sample}_r10/{mge}.fa.cdbg_ids.reads.gz.unitigs_{genome}.png"
+    resources:
+        mem_mb = 4000,
+        time_min = 120
+    threads: 1
+    conda: "envs/bandage.yml"
+    shell:'''
+    XDG_RUNTIME_DIR=~/tmp # REQUIRES THAT THIS FOLDER EXISTS
+    Bandage image {input.gfa} {output} --query {input.blastquery}    
+    '''
+
+def checkpoint_spacegraphcats_extract_mge_sequences_2(wildcards):
+    # Expand checkpoint to get fasta names, which will be used as queries for spacegraphcats extract
+    # checkpoint_output encodes the output dir from the checkpoint rule.
+    checkpoint_output = checkpoints.spacegraphcats_extract_mge_sequences.get(**wildcards).output[0]    
+    file_names = expand("outputs/bandage/{{sample}}_r10/{mge}.fa.cdbg_ids.reads.gz.unitigs_{{genome}}.png",
+                        mge = glob_wildcards(os.path.join(checkpoint_output, "{mge}.fa.cdbg_ids.reads.gz")).mge)
+    return file_names
+
+rule dummy_solve_species_blast:
+    input: checkpoint_spacegraphcats_extract_mge_sequences_2
+    output: touch("outputs/bandage/{sample}_{genome}_done_species.txt")
