@@ -50,6 +50,8 @@ An example of how to adapt the workflow to accommodate single end or paired end 
 
 ## Overview of Approach
 
+![](https://i.imgur.com/1bUVynT.png)
+
 This workflow uses assembly graph queries to identify and estimate the abundance of mobile genetic elements in a metagenome.
 The workflow begins by quality controlling the raw metagenome sequence reads. 
 [fastp](https://github.com/OpenGene/fastp) is used for adapter removal and general quality control, [bbduk](http://seqanswers.com/forums/archive/index.php/t-42552.html) is used to remove human (host) sequences, and khmer [trim-low-abund.py](https://khmer-recipes.readthedocs.io/en/latest/007-variable-coverage-trimming/) is used to k-mer trim the reads. 
@@ -123,7 +125,7 @@ Decreasing the scaled value to 1000 would approximately decrease the missed sequ
 This only impacts the initial multifasta query, and not the downstream investigation.
 
 In the future, I hope to improve taxonomic recall of this workflow. 
-Currently, the workflow identifies the genomic background of candidate MGEs using XXX. 
+Currently, the workflow identifies the genomic background of candidate MGEs using graph BLAST searches. 
 Instead of this, I would like to implement a graph-based approach where shortest path traversals between a candidate MGE and single copy marker genes are used to infer the genomic context.
 [Demo code to do this already exists](https://github.com/dib-lab/2020-ibd/blob/master/sandbox/test_corncob_dda/08_graph_explore.R), but still needs to be generalized and scaled.
 
