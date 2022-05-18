@@ -1,8 +1,3 @@
----
-output:
-  pdf_document: default
-  html_document: default
----
 # Workflow to identity prevalent mobile genetic elements in a metagenome
 
 The goal of this repository is to demonstrate a workflow for the discovery of a prevalent mobile genetic elements (MGEs) in a metagenome.
@@ -82,16 +77,34 @@ Higher complexity, especially when paired with high abundance, is indicative tha
 
 Lastly, we assessed the taxonomic identity of the sequences that surrounded the candidate MGEs.
 We determined the the taxonomic composition of the metagenome using sourmash `gather` against the GTDB rs207 database; while this database only includes bacteria and archaea, there are sourmash GenBank databases for viruses, protozoa, and fungi as well that could easily be added to this step.
-XXXXXXX
+(see [issue #1](https://github.com/taylorreiter/2022-infant-mge/issues/1). We ran `gather` with all databases and didn't get different results.)
+Using genomes identified in the metagenome, we BLASTed each genome against the neighborhood query graph to determine whether that genome surrounded the MGE.
 
 The strength of this approach is that is avoids assembly and binning, both of which [disproportionately exclude sequences from plasmids and genomic islands](https://doi.org/10.1099/mgen.0.000436).
 
 ## Results
 
-### Taxonomic breakdown of the metagenome
+![](https://i.imgur.com/u7UM6lM.png)
+We applied `sourmash gather` to determine the taxonomic profile of the metagenome. 
+We detected nine genomes representing seven species. 
+This agrees with the original [publication of this data set](http://www.genome.org/cgi/doi/10.1101/gr.213256.116), which showed this community to be low diversity.
+Sourmash likely missed viruses and plasmids that were present in the sample. 
+See [notebooks/20220517_explore_taxonomic_composition_sourmash_gather.ipynb](https://github.com/taylorreiter/2022-infant-mge/blob/main/notebooks/20220517_explore_taxonomic_composition_sourmash_gather.ipynb).
 
-See notebooks/XXXX.
+We identified two interesting MGEs, both of which were antibiotic resistance genes.
 
+The first encoded an *ErmB* genes, which is associated with the antibiotic [erythromycin](https://card.mcmaster.ca/ontology/36514).
+
+![](https://i.imgur.com/W6HDbmk.png)
+
+We detected this gene to be present in both *Enterococcus faecium* and *Clostridioides difficile* genomic backgrounds.
+
+The second encoded *CfxA5*, which is associated with [beta lactamase resistance](https://card.mcmaster.ca/ontology/39649).
+Unlike *Ermb*, we detected this only in *Bacteroides vulgatus*.
+However, `sourmash gather` showed that the *B. vulgatus* genome we identified in this sample was 100% present, suggesting the exact MAG binned from this sample has been deposited in GenBank. 
+Given that the entire contig was not a BLAST match for the *CfxA5* gene within the *B. vulgatus* bin, this suggests there is strain variation around this resistance element in the metagenome.
+
+![](https://i.imgur.com/SDbm4b7.png)
 
 
 ## Limitations and future directions
