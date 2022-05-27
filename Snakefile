@@ -13,7 +13,6 @@ GENOMES = ['GCA_000701705.1', 'GCA_001913975.1',  'GCA_009737075.1', 'GCA_001913
 rule all:
     input:  
         expand("outputs/sourmash_gather/{sample}_k31_scaled2000_gtdb-rs207.csv", sample = SAMPLES),
-        expand("outputs/sgc_abund/{sample}.abundtrim.fq.gz.dom_abund.csv", sample = SAMPLES), 
         expand("outputs/sgc/{sample}_k31_r10_multifasta/multifasta.cdbg_annot.csv", sample = SAMPLES),
         expand("outputs/bandage/{sample}_done_mge.txt", sample = SAMPLES),
         expand("outputs/bandage/{sample}_r10/{genome}_done_species.txt", sample = SAMPLES, genome = GENOMES)
@@ -43,16 +42,13 @@ rule download_metagenome_reads:
 
 
 rule download_sourmash_db_for_taxonomy:
-    """
-    NOTE: ran sourmash gather using cluster-local copy of db, added rule for provenance
-    """
-    output: "inputs/gtdb-rs207.genomic.k31.zip"
+    output: "inputs/gtdb-rs207.genomic-reps.dna.k31.zip"
     threads: 1
     resources:
         mem_mb = 800,
         time_min = 30
     shell:'''
-    wget -O {output} whttps://osf.io/k2u8s/download
+    wget -O {output} https://osf.io/3a6gn/download
     '''
 
 rule download_human_db_for_decontam:
@@ -223,7 +219,7 @@ rule sourmash_sketch_mgx:
 rule sourmash_gather_mgx:
     input:
         sig= "outputs/sourmash_sigs/{sample}.sig",
-        db = "/group/ctbrowngrp/sourmash-db/gtdb-rs207/gtdb-rs207.genomic.k31.zip" 
+        db = "inputs/gtdb-rs207.genomic-reps.dna.k31.zip"
     output: "outputs/sourmash_gather/{sample}_k31_scaled2000_gtdb-rs207.csv"
     conda: "envs/sourmash.yml"
     benchmark: "benchmarks/sourmash_gather_k31_scaled2000_gtdb-rs207_{sample}.tsv"
@@ -305,27 +301,6 @@ rule spacegraphcats_multifasta_query:
     threads: 1
     shell:'''
     python -m spacegraphcats run {input.conf} multifasta_query --nolock --outdir {params.outdir} --rerun-incomplete
-    '''
-
-rule spacegraphcats_estimate_abundances_of_dominating_sets:
-    input:
-        cdbg = "outputs/sgc/{sample}_k31/cdbg.gxt",
-        catlas = "outputs/sgc/{sample}_k31_r10/catlas.csv",
-        reads = "outputs/abundtrim/{sample}.abundtrim.fq.gz"
-    output: "outputs/sgc_abund/{sample}.abundtrim.fq.gz.dom_abund.csv"
-    conda: "envs/spacegraphcats.yml"
-    benchmark: "benchmarks/spacegraphcats_count_dominator_abund_k31_r10_{sample}.tsv"
-    resources: 
-        mem_mb = 10000,
-        time_min = 920
-    threads: 1
-    params:
-        cdbg_dir = lambda wildcards: "outputs/sgc/" + wildcards.sample + "_k31" ,
-        catlas_dir = lambda wildcards: "outputs/sgc/" + wildcards.sample + "_k31_r10", 
-        out_dir = "outputs/sgc_abund/"
-    shell:'''
-    # TODO: CHECK WHERE THIS SCRIPT LIVES WHEN SGC IS INSTALLED
-    /home/tereiter/github/spacegraphcats/scripts/count-dominator-abundance.py {params.cdbg_dir} {params.catlas_dir} --outdir {params.out_dir} {input.reads}
     '''
 
 #################################################################
