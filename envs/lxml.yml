@@ -1,0 +1,6 @@
+channels:
+    - conda-forge
+    - bioconda
+    - defaults
+dependencies:
+    - lxml=4.6.4

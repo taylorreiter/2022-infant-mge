@@ -8,14 +8,68 @@ SAMPLES = m['run_accession'].unique().tolist()
 # temporarily define genome accession wildcard for BLAST queries
 # This is straightforward to automate gather matches -> genome download, but this is a faster bandaid
 # Requires new class to be defined that will scrape in df of gather results and solve appropriate accessions per sample
-GENOMES = ['GCA_000701705.1', 'GCA_001913975.1',  'GCA_009737075.1', 'GCA_001913895.1', 'GCA_001931885.1', 'GCA_019173815.2'] 
+# GENOMES = ['GCA_000701705.1', 'GCA_001913975.1',  'GCA_009737075.1', 'GCA_001913895.1', 'GCA_001931885.1', 'GCA_019173815.2'] 
+
+class Checkpoint_GatherResults:
+    """Given a pattern containing {ident} and {sample}, this class
+    will generate the list of {ident} for that {sample}'s gather results.
+    Alternatively, you can omit {sample} from the pattern and include the
+    list of sample names in the second argument to the constructor.
+    """
+    def __init__(self, pattern, samples=None):
+        self.pattern = pattern
+        self.samples = samples
+
+    def get_genome_idents(self, sample):
+        gather_csv = f'outputs/sourmash_gather/{sample}_k31_scaled2000_gtdb-rs207_reps.csv'
+        assert os.path.exists(gather_csv), "gather output does not exist!?"
+
+        genome_idents = []
+        with open(gather_csv, 'rt') as fp:
+           r = csv.DictReader(fp)
+           for row in r:
+               ident = row['name'].split()[0]
+               genome_idents.append(ident)
+        print(f'loaded {len(genome_idents)} identifiers from {gather_csv}.',
+              file=sys.stderr)
+
+        return genome_idents
+
+    def __call__(self, w):
+        # get 'sample' from wildcards?
+        if self.samples is None:
+            return self.do_sample(w)
+        else:
+            assert not hasattr(w, 'sample'), "if 'samples' provided to constructor, cannot also be in rule inputs"
+
+            ret = []
+            for sample in self.samples:
+                d = dict(sample=sample)
+                w = snakemake.io.Wildcards(fromdict=d)
+
+                x = self.do_sample(w)
+                ret.extend(x)
+
+            return ret
+
+    def do_sample(self, w):
+        # wait for the results of 'gather_gather_mgx'; this will trigger exception until that rule has been run.
+        checkpoints.sourmash_gather_mgx.get(**w)
+
+        # parse hitlist_genomes,
+        genome_idents = self.get_genome_idents(w.sample)
+
+        p = expand(self.pattern, ident=genome_idents, **w)
+
+        return p
+
 
 rule all:
     input:  
         expand("outputs/sourmash_gather/{sample}_k31_scaled2000_gtdb-rs207.csv", sample = SAMPLES),
         expand("outputs/sgc/{sample}_k31_r10_multifasta/multifasta.cdbg_annot.csv", sample = SAMPLES),
         expand("outputs/bandage/{sample}_done_mge.txt", sample = SAMPLES),
-        expand("outputs/bandage/{sample}_r10/{genome}_done_species.txt", sample = SAMPLES, genome = GENOMES)
+        Checkpoint_GatherResults(expand("outputs/bandage/{sample}_r10/{{acc}}_done_species.txt", sample = SAMPLES))
 
 ###################################################################
 ## Download reads and databases for workflow
@@ -213,14 +267,14 @@ rule sourmash_sketch_mgx:
         mem_mb = 800,
         time_min = 30
     shell:'''
-    sourmash sketch dna -p k=31,scaled=2000 -o {output} {input}
+    sourmash sketch dna -p k=31,scaled=2000,abund -o {output} {input}
     '''
     
-rule sourmash_gather_mgx:
+checkpoint sourmash_gather_mgx:
     input:
         sig= "outputs/sourmash_sigs/{sample}.sig",
         db = "inputs/gtdb-rs207.genomic-reps.dna.k31.zip"
-    output: "outputs/sourmash_gather/{sample}_k31_scaled2000_gtdb-rs207.csv"
+    output: "outputs/sourmash_gather/{sample}_k31_scaled2000_gtdb-rs207_reps.csv"
     conda: "envs/sourmash.yml"
     benchmark: "benchmarks/sourmash_gather_k31_scaled2000_gtdb-rs207_{sample}.tsv"
     threads: 1
@@ -445,7 +499,6 @@ rule bandage_plot_gfa_mge:
     Bandage image {input.gfa} {output} --query {input.blastquery}    
     '''
 
-    
 def checkpoint_spacegraphcats_extract_mge_sequences_1(wildcards):
     # Expand checkpoint to get fasta names, which will be used as queries for spacegraphcats extract
     # checkpoint_output encodes the output dir from the checkpoint rule.
@@ -458,11 +511,50 @@ rule dummy_solve_mge_blast:
     input: checkpoint_spacegraphcats_extract_mge_sequences_1
     output: touch("outputs/bandage/{sample}_done_mge.txt")
     
+#################################################################################
+## Species context of mges
+#################################################################################
+
+rule make_genome_info_csv:
+    output: csvfile = 'outputs/genbank_genomes/{acc}.info.csv'
+    conda: "envs/lxml.yml"
+    resources:
+        mem_mb = 8000
+    threads: 1
+    shell: """
+    python scripts/genbank_genomes.py {wildcards.acc} --output {output.csvfile}
+    """
+
+rule download_blast_species_from_gather_output:
+    input: csvfile = ancient('outputs/genbank_genomes/{acc}.info.csv')
+    output: genome = "outputs/genbank_genomes/{acc}_genomic.fna.gz"
+    resources:
+        mem_mb = 500
+    threads: 1
+    run:
+        with open(input.csvfile, 'rt') as infp:
+            r = csv.DictReader(infp)
+            rows = list(r)
+            assert len(rows) == 1
+            row = rows[0]
+            acc = row['acc']
+            assert wildcards.acc.startswith(acc)
+            url = row['genome_url']
+            name = row['ncbi_tax_name']
+
+            print(f"downloading genome for acc {acc}/{name} from NCBI...", file=sys.stderr)
+            with open(output.genome, 'wb') as outfp:
+                with urllib.request.urlopen(url) as response:
+                    content = response.read()
+                    outfp.write(content)
+                    print(f"...wrote {len(content)} bytes to {output.genome}",
+                        file=sys.stderr)
+
 rule bandage_plot_gfa_species:
     input: 
         gfa="outputs/bcalm/{sample}_r10/{mge}.fa.cdbg_ids.reads.gz.unitigs.gfa",
-        blastquery="outputs/genbank_genomes/{genome}_genomic.fna"
-    output: "outputs/bandage/{sample}_r10/{genome}/{mge}.fa.cdbg_ids.reads.gz.unitigs.png"
+        blastquery="outputs/genbank_genomes/{acc}_genomic.fna"
+    output: "outputs/bandage/{sample}_r10/{acc}/{mge}.fa.cdbg_ids.reads.gz.unitigs.png"
     resources:
         mem_mb = 4000,
         time_min = 120
@@ -477,10 +569,10 @@ def checkpoint_spacegraphcats_extract_mge_sequences_2(wildcards):
     # Expand checkpoint to get fasta names, which will be used as queries for spacegraphcats extract
     # checkpoint_output encodes the output dir from the checkpoint rule.
     checkpoint_output = checkpoints.spacegraphcats_extract_mge_sequences.get(**wildcards).output[0]    
-    file_names = expand("outputs/bandage/{{sample}}_r10/{{genome}}/{mge}.fa.cdbg_ids.reads.gz.unitigs.png",
+    file_names = expand("outputs/bandage/{{sample}}_r10/{{acc}}/{mge}.fa.cdbg_ids.reads.gz.unitigs.png",
                         mge = glob_wildcards(os.path.join(checkpoint_output, "{mge}.fa.cdbg_ids.reads.gz")).mge)
     return file_names
 
 rule dummy_solve_species_blast:
     input: checkpoint_spacegraphcats_extract_mge_sequences_2
-    output: touch("outputs/bandage/{sample}_r10/{genome}_done_species.txt")
+    output: touch("outputs/bandage/{sample}_r10/{acc}_done_species.txt")
