@@ -1,14 +1,9 @@
 import pandas as pd
+import csv
 import os
 
 m = pd.read_csv("inputs/filereport_read_run_SRR3726337.tsv", header = 0, sep = "\t")
 SAMPLES = m['run_accession'].unique().tolist()
-
-# TODO:
-# temporarily define genome accession wildcard for BLAST queries
-# This is straightforward to automate gather matches -> genome download, but this is a faster bandaid
-# Requires new class to be defined that will scrape in df of gather results and solve appropriate accessions per sample
-# GENOMES = ['GCA_000701705.1', 'GCA_001913975.1',  'GCA_009737075.1', 'GCA_001913895.1', 'GCA_001931885.1', 'GCA_019173815.2'] 
 
 class Checkpoint_GatherResults:
     """Given a pattern containing {ident} and {sample}, this class
@@ -53,23 +48,23 @@ class Checkpoint_GatherResults:
             return ret
 
     def do_sample(self, w):
-        # wait for the results of 'gather_gather_mgx'; this will trigger exception until that rule has been run.
+        # wait for the results of 'sourmash_gather_mgx'; this will trigger exception until that rule has been run.
         checkpoints.sourmash_gather_mgx.get(**w)
 
         # parse hitlist_genomes,
         genome_idents = self.get_genome_idents(w.sample)
 
-        p = expand(self.pattern, ident=genome_idents, **w)
+        p = expand(self.pattern, acc=genome_idents, **w)
 
         return p
-
 
 rule all:
     input:  
         expand("outputs/sourmash_gather/{sample}_k31_scaled2000_gtdb-rs207.csv", sample = SAMPLES),
         expand("outputs/sgc/{sample}_k31_r10_multifasta/multifasta.cdbg_annot.csv", sample = SAMPLES),
         expand("outputs/bandage/{sample}_done_mge.txt", sample = SAMPLES),
-        Checkpoint_GatherResults(expand("outputs/bandage/{sample}_r10/{{acc}}_done_species.txt", sample = SAMPLES))
+        Checkpoint_GatherResults(expand("outputs/bandage/{sample}_r10/{{acc}}_done_species.txt", sample = SAMPLES), samples = SAMPLES)
+        #Checkpoint_GatherResults(expand("outputs/bandage/{sample}_r10/{{acc}}_done_species.txt", sample = SAMPLES))
 
 ###################################################################
 ## Download reads and databases for workflow
@@ -519,7 +514,8 @@ rule make_genome_info_csv:
     output: csvfile = 'outputs/genbank_genomes/{acc}.info.csv'
     conda: "envs/lxml.yml"
     resources:
-        mem_mb = 8000
+        mem_mb = 800,
+        time_min = 10
     threads: 1
     shell: """
     python scripts/genbank_genomes.py {wildcards.acc} --output {output.csvfile}
@@ -529,7 +525,8 @@ rule download_blast_species_from_gather_output:
     input: csvfile = ancient('outputs/genbank_genomes/{acc}.info.csv')
     output: genome = "outputs/genbank_genomes/{acc}_genomic.fna.gz"
     resources:
-        mem_mb = 500
+        mem_mb = 500,
+        time_min = 20
     threads: 1
     run:
         with open(input.csvfile, 'rt') as infp:
@@ -549,6 +546,17 @@ rule download_blast_species_from_gather_output:
                     outfp.write(content)
                     print(f"...wrote {len(content)} bytes to {output.genome}",
                         file=sys.stderr)
+
+rule gunzip_species_from_gather_output:
+    input: genome = "outputs/genbank_genomes/{acc}_genomic.fna.gz"
+    output: genome = "outputs/genbank_genomes/{acc}_genomic.fna"
+    resources:
+        mem_mb = 500,
+        time_min = 20
+    threads: 1
+    shell:'''
+    gunzip -c {input} > {output}
+    '''
 
 rule bandage_plot_gfa_species:
     input: 
