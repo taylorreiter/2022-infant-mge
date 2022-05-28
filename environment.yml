@@ -5,3 +5,4 @@ channels:
 dependencies:
    - snakemake=7.6.2
    - pandas=1.4.2
+   - mamba=0.23.3
