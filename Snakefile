@@ -97,7 +97,7 @@ rule download_sourmash_db_for_taxonomy:
         mem_mb = 800,
         time_min = 30
     shell:'''
-    wget -O {output} https://osf.io/3a6gn/download
+    wget -O {output} https://osf.io/3a6gn/download --no-check-certificate
     '''
 
 rule download_human_db_for_decontam:
@@ -107,7 +107,7 @@ rule download_human_db_for_decontam:
         mem_mb = 800,
         time_min = 15
     shell:'''
-    wget -O {output} https://osf.io/vsr4n/download
+    wget -O {output} https://osf.io/vsr4n/download --no-check-certificate
     '''
 
 rule download_CARD_db_for_annotation:
